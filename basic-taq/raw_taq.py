@@ -109,15 +109,11 @@ def dtype_to_pytables(dtype):
 def record_len_to_last_column(initial_dtype):
     """
     initial_dtype of form:
-    
     [('Time', 'S9'),
     ('Exchange', 'S1'),
     ....
-    ('newline', 'S2')]
- 
- Assumption is that the last field is a newline field that is present in all versions of BBO
+    ('newline', 'S2')] 
     """
-    
     cum_len = 0
     cum_lens = []
     flens = [(field, int(dtype[1:])) for (field, dtype) in initial_dtype]
@@ -125,7 +121,7 @@ def record_len_to_last_column(initial_dtype):
 
     for (i,(field, flen)) in enumerate(flens[:-1]):
         cum_len += flen
-        cum_lens.append((cum_len+newline_len, i))
+        cum_lens.append((cum_len + newline_len, i))
 
     return dict(cum_lens)
 
@@ -155,7 +151,7 @@ class TAQ2Chunks:
     def __init__(self, taq_fname, chunksize = 1000000, process_chunk = False):
         self.taq_fname = taq_fname
         self.chunksize = chunksize
-        self.process-chunk = process_chunk
+        self.process_chunk = process_chunk
 
         self.numlines = None
         self.year = None
