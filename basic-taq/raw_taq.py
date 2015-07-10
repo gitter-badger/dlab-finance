@@ -106,21 +106,27 @@ def dtype_to_pytables(dtype):
         d.update(el._v_colobjects)
     return d
 
-def record_len_to_column(initial_dtype):
+def record_len_to_last_column(initial_dtype):
     """
     initial_dtype of form:
-    [('Time'), 'S9'], ('Exchange', 'S1'),
-    ...
-    ('newline', 'S2')
+    
+    [('Time', 'S9'),
+    ('Exchange', 'S1'),
+    ....
+    ('newline', 'S2')]
+ 
+ Assumption is that the last field is a newline field that is present in all versions of BBO
     """
+    
     cum_len = 0
     cum_lens = []
-    flens = [(field, int(dtype[1:])) for (field, dtype) in intital_dtype]
+    flens = [(field, int(dtype[1:])) for (field, dtype) in initial_dtype]
     newline_len = flens[-1][1]
 
-    for (i, (field flen)) in enumerate(flens[:-1]):
+    for (i,(field, flen)) in enumerate(flens[:-1]):
         cum_len += flen
-        cum_lens.append((cum_len + newline_len, i))
+        cum_lens.append((cum_len+newline_len, i))
+
     return dict(cum_lens)
 
 # The "easy" dtypes are the "not datetime" dtypes
