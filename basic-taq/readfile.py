@@ -4,13 +4,13 @@ from collections import Counter
 import numpy as np
 from collections import Counter
 from itertools import islice
-import raw_taq
+import raw_taq_ry
 
 def count_chunk_elements(fname, chunksize=1000000, max_chunk=None, process_chunk=False):
 
     symbol_roots = Counter()
 
-    for (i,chunk) in enumerate(islice(raw_taq.TAQ2Chunks(fname, 
+    for (i,chunk) in enumerate(islice(raw_taq_ry.TAQ2Chunks(fname, 
             	                                             chunksize=chunksize, 
                                                          process_chunk=process_chunk), max_chunk)):
 
@@ -23,9 +23,9 @@ def count_chunk_elements(fname, chunksize=1000000, max_chunk=None, process_chunk
 
 if __name__ == '__main__':
     from sys import argv
-    fname = '../local_data/EQY_US_ALL_BBO_201501' + argv[1] + '.zip'
+    fname = '../local_data/EQY_US_ALL_BBO_201402' + argv[1] + '.zip'
     
-    chunks = raw_taq.TAQ2Chunks(fname,chunksize=1000000, process_chunk=False)
-	c = count_chunk_elements(fname, max_chunk=None)
+    chunks = raw_taq_ry.TAQ2Chunks(fname,chunksize=1, process_chunk=False)
+    c = count_chunk_elements(fname, max_chunk=None)
     for (i,(k,v)) in enumerate(islice(c.most_common(),10)):
     	print ("\t".join([str(i), k.decode('utf-8').strip(), str(v)]))
