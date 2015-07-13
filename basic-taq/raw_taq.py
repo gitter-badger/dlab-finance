@@ -106,23 +106,21 @@ def dtype_to_pytables(dtype):
         d.update(el._v_colobjects)
     return d
 
-def record_len_to_last_column(initial_dtype):
+def record_len_to_column(initial_dtype):
     """
     initial_dtype of form:
-    [('Time', 'S9'),
-    ('Exchange', 'S1'),
-    ....
-    ('newline', 'S2')] 
+    [('Time'), 'S9'], ('Exchange', 'S1'),
+    ...
+    ('newline', 'S2')
     """
     cum_len = 0
     cum_lens = []
-    flens = [(field, int(dtype[1:])) for (field, dtype) in initial_dtype]
+    flens = [(field, int(dtype[1:])) for (field, dtype) in intital_dtype]
     newline_len = flens[-1][1]
 
-    for (i,(field, flen)) in enumerate(flens[:-1]):
+    for (i, (field flen)) in enumerate(flens[:-1]):
         cum_len += flen
         cum_lens.append((cum_len + newline_len, i))
-
     return dict(cum_lens)
 
 # The "easy" dtypes are the "not datetime" dtypes
@@ -148,26 +146,8 @@ RECORD_LEN_TO_COLUMN_MAP = record_len_to_last_column(initial_dtype)
 class TAQ2Chunks:
     '''Read in raw TAQ BBO file, and return numpy chunks (cf. odo)'''
 
-    def __init__(self, taq_fname, chunksize = 1000000, process_chunk = False):
+    def __init__(self, taq_fname):
         self.taq_fname = taq_fname
-        self.chunksize = chunksize
-        self.process_chunk = process_chunk
-
-        self.numlines = None
-        self.year = None
-        self.month = None
-        self.day = None
-
-        self.iter_ = self.convert_taq()
-
-    def _len_(self):
-        return self.numlines
-
-    def _iter_(self):
-        return self
-
-    def _next_(self):
-        return next(self.iter_)
 
     def convert_taq(self, chunksize=None):
         '''Return a generator that yields chunks
@@ -185,36 +165,18 @@ class TAQ2Chunks:
 
                 with zfile.open(inside_f.filename) as infile:
                     first = infile.readline()
-                    bytes_per_line = len(first)
-
-                    dtype = (initial_dtype[:RECORD_LEN_TO_LAST_COLUMN_MAP[bytes_per_line]+1] + 
-                        [initial_dtype[-1]])
 
                     # You need to use bytes to split bytes
-                    try:
-                        dateish, numlines = first.split(b":")
-                        numlines = int(numlines)
+                    dateish, numlines = first.split(b":")
+                    numlines = int(numlines)
 
-                        # Get dates to combine with times later
-                        # This is a little over-trusting of the spec...
-                        self.month = int(dateish[2:4])
-                        self.day = int(dateish[4:6])
-                        self.year = int(dateish[6:10])
-                    except:
-                        pass
+                    # Get dates to combine with times later
+                    # This is a little over-trusting of the spec...
+                    self.month = int(dateish[2:4])
+                    self.day = int(dateish[4:6])
+                    self.year = int(dateish[6:10])
 
-                    if self.process_chunk:
-                        yield from self.chunks(self.numlines, infile, self.chunksize)  # noqa
-                    else:
-                        more_bytes = True
-                        while (more_bytes):
-                            raw_bytes = infile.read(bytes_per_line * self.chunksize)
-                            all_strings = np.ndarray(len(raw_bytes) // bytes_per_line, 
-                                                     buffer=raw_bytes, dtype=dtype)
-                            if raw_bytes:
-                                yield (all_strings)
-                            else:
-                                more_bytes = False
+                    yield from self.chunks(numlines, infile, chunksize)  # noqa
 
     def process_chunk(self, all_strings):
         # This is unnecessary copying
