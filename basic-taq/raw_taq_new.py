@@ -84,7 +84,7 @@ class initialbytes(object):
                          'National_BBO_LULD_Indicator']
 
     # Lifted from blaze.pytables
-    def dtype_to_pytables(self):
+    def dtype_to_pytables(self, dtype):
         """ 
         Convert NumPy dtype to PyTable descriptor
         Examples
@@ -108,7 +108,7 @@ class initialbytes(object):
             d.update(el._v_colobjects)
         return d
 
-    def record_len_to_last_column(self):
+    def record_len_to_last_column(self, initial_dtype):
         """
         initial_dtype of form:
         
@@ -131,7 +131,7 @@ class initialbytes(object):
         return dict(cum_lens)   
 
     # The "easy" dtypes are the "not datetime" dtypes
-    def easy_not_datetime(self):
+    def get_RECORD_MAP(self):
         easy_dtype = []
         convert_dict = dict(initialbytes.convert_dtype)
 
@@ -141,14 +141,13 @@ class initialbytes(object):
             elif name in initialbytes.passthrough_strings:
                 easy_dtype.append( (name, dtype) )
 
-        # PyTables will not accept np.datetime64, we hack below, but we use it to work
-        # with the blaze function above.
-        # We also shift Time to the end (while I'd rather maintain order), as it's more
-        # efficient for Dav given the technical debt he's already built up.
+            # PyTables will not accept np.datetime64, we hack below, but we use it to work
+            # with the blaze function above.
+            # We also shift Time to the end (while I'd rather maintain order), as it's more
+            # efficient for Dav given the technical debt he's already built up.
         pytables_dtype = easy_dtype + [('Time', 'datetime64[ms]')]
         pytables_desc = self.dtype_to_pytables( np.dtype(pytables_dtype) )
-
-        RECORD_LEN_TO_LAST_COLUMN_MAP = self.record_len_to_last_column()
+        RECORD_LEN_TO_LAST_COLUMN_MAP = self.record_len_to_last_column( initialbytes.initial_dtype )
         return RECORD_LEN_TO_LAST_COLUMN_MAP
 
 # TODO HDF5 will be broken for now
@@ -186,6 +185,9 @@ class TAQ2Chunks(initialbytes):
         # The below doesn't work for pandas (and neither does `unzip` from the
         # command line). Probably want to use something like `7z x -so
         # my_file.zip 2> /dev/null` if we use pandas.
+
+        bytes = initialbytes()
+
         with ZipFile(self.taq_fname) as zfile:
             for inside_f in zfile.filelist:
                 # The original filename is available as inside_f.filename
@@ -194,8 +196,9 @@ class TAQ2Chunks(initialbytes):
                 with zfile.open(inside_f.filename) as infile:
                     first = infile.readline()
                     bytes_per_line = len(first)
-                    
-                    dtype = (bytes.initial_dtype[:(bytes.RECORD_LEN_TO_LAST_COLUMN_MAP[bytes_per_line]+1)] + [bytes.initial_dtype[-1]])
+
+                    MAP = bytes.get_RECORD_MAP()
+                    dtype = (bytes.initial_dtype[:(MAP[bytes_per_line]+1)] + [bytes.initial_dtype[-1]])
 
                     # You need to use bytes to split bytes
                     # some files (probably older files do not have a record count)
@@ -302,33 +305,12 @@ class TAQ2Chunks(initialbytes):
     #     for chunk in self.to_chunks(numlines, infile, chunksize):
     #         out.append(chunk)
 
-def count_chunk_elements(fname, chunksize = 1000000, max_chunk = None, process_chunk = False):
-
-    symbol_roots = Counter()
-    bytes = initialbytes()
-
-    for (i,chunk) in enumerate(islice(TAQ2Chunks(fname, chunksize=chunksize, process_chunk=process_chunk), max_chunk)):
-
-        counts = np.unique(chunk[:]['Symbol_root'], return_counts=True)
-        symbol_roots.update(dict(zip_longest(counts[0], counts[1])))
-
-        print("\r {0}".format(i),end="")
-
-    return symbol_roots
-
 if __name__ == '__main__':
     from sys import argv
     from glob import glob
-    from itertools import (islice, zip_longest)
-    from collections import Counter
-    import numpy as np
-    from collections import Counter
-    from itertools import islice
 
     # Grab the first BBO file we can find
-    fname = glob('../local_data/EQY_US_ALL_BBO_*.zip')
+    fname = glob('../local_data/EQY_US_ALL_BBO_20140206.zip')
     bytes = initialbytes()
     chunks = TAQ2Chunks(fname,chunksize=1000, process_chunk=False)
-    c = count_chunk_elements(fname, max_chunk=None)
-    for (i,(k,v)) in enumerate(islice(c.most_common(),50)):
-        print ("\t".join([str(i), k.decode('utf-8').strip(), str(v)]))
+    
