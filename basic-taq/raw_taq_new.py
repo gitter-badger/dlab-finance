@@ -51,7 +51,8 @@ class BytesSpec(object):
     # We could use msec from beginning of day for now in an uint16
     # (maybe compare performance to datetime64? Dates should compress very well...)
 
-    convert_dtype = [('hour', np.int8),
+    convert_dtype = [# Time is the first field in HHMMSSmmm format
+                     ('hour', np.int8),
                      ('minute', np.int8),
                      # This works well for now, but pytables wants:
                      # <seconds-from-epoch>.<fractional-seconds> as a float64
@@ -90,7 +91,17 @@ class BytesSpec(object):
                            'National_BBO_LULD_Indicator'
                           ]
 
-    def __init__(self, bytes_per_line):
+    def __init__(self, bytes_per_line, computed_fields=None):
+        '''Set up dtypes, etc. based on bytes_per_line
+
+        bytes_per_line : int
+            Should be one of two possible values XXX which are?
+        computed_fields : [('Name', dtype), ...]
+            A list-based structured dtype, for use for example with
+            `[('Time', 'datetime64[ms]')]`.  PyTables will not accept
+            np.datetime64, but we use it to work with the pytables_desc
+            computed attribute.
+        '''
         self.bytes_per_line = bytes_per_line
         self.check_present_fields()
 
@@ -102,18 +113,18 @@ class BytesSpec(object):
                 easy_dtype.append( (name, self.convert_dict[name]) )
             elif name in self.passthrough_strings:
                 easy_dtype.append( (name, dtype) )
+            # Items not in these strings are silently ignored! We could add
+            # logic to allow for explicitly ignoring fields here.
 
-        # PyTables will not accept np.datetime64, we hack below, but we use it to work
-        # with the blaze function above.
-        # We also shift Time to the end (while I'd rather maintain order), as it's more
-        # efficient for Dav given the technical debt he's already built up.
-        pytables_dtype = easy_dtype # + [('Time', 'datetime64[ms]')]
-        self.pytables_desc = self.dtype_to_pytables( np.dtype(pytables_dtype) )
+        if computed_fields:
+            self.target_dtype = computed_fields + easy_dtype
+        else:
+            self.target_dtype = easy_dtype
 
-    # Lifted from blaze.pytables
-    def dtype_to_pytables(self, dtype):
+    @property
+    def pytables_desc(self):
         """
-        Convert NumPy dtype to PyTable descriptor
+        Convert NumPy dtype to PyTable descriptor (lifted from blaze.pytables).
         Examples
         --------
         >>> from tables import Int32Col, StringCol, Time64Col
@@ -123,6 +134,8 @@ class BytesSpec(object):
          'name': StringCol(itemsize=7, shape=(), dflt='', pos=0),
          'time': Time64Col(shape=(), dflt=0.0, pos=2)}
         """
+        dtype = np.dtype(self.target_dtype)
+
         d = {}
         for pos, name in enumerate(dtype.names):
             dt, _ = dtype.fields[name]
@@ -133,6 +146,7 @@ class BytesSpec(object):
             el = tdtype[0]  # removed dependency on toolz -DJC
             getattr(el, name)._v_pos = pos
             d.update(el._v_colobjects)
+
         return d
 
     def check_present_fields(self):
@@ -170,10 +184,10 @@ class TAQ2Chunks:
 
     # bytes = initialbytes()
 
-    def __init__(self, taq_fname, chunksize = 1000000, process_chunk = False):
+    def __init__(self, taq_fname, chunksize = 1000000, do_process_chunk = False):
         self.taq_fname = taq_fname
         self.chunksize = chunksize
-        self.process_chunk = process_chunk
+        self.do_process_chunk = do_process_chunk
 
         self.numlines = None
         self.year = None
@@ -200,7 +214,6 @@ class TAQ2Chunks:
         # command line). Probably want to use something like `7z x -so
         # my_file.zip 2> /dev/null` if we use pandas.
 
-
         with ZipFile(self.taq_fname) as zfile:
             for inside_f in zfile.filelist:
                 # The original filename is available as inside_f.filename
@@ -210,68 +223,84 @@ class TAQ2Chunks:
                     first = infile.readline()
                     bytes_per_line = len(first)
 
-                    self.bytes_spec = BytesSpec(bytes_per_line)
+                    if self.do_process_chunk:
+                        self.bytes_spec = \
+                            BytesSpec(bytes_per_line,
+                                      computed_fields=[('Time', np.float64)])
+                                      # We want this for making the PyTables
+                                      # description:
+                                      # computed_fields=[('Time', 'datetime64[ms]')])
+                    else:
+                        self.bytes_spec = BytesSpec(bytes_per_line)
 
                     # You need to use bytes to split bytes
                     # some files (probably older files do not have a record count)
                     try:
                         dateish, numlines = first.split(b":")
                         self.numlines = int(numlines)
-                        # Get dates to combine with times later
-                        # This is a little over-trusting of the spec...
-                        self.month = int(dateish[2:4])
-                        self.day = int(dateish[4:6])
-                        self.year = int(dateish[6:10])
+                    except ValueError:
+                        self.numlines = None
+                        dateish = first
 
-                    except:
-                        pass
+                    # Get dates to combine with times later
+                    # This is a little over-trusting of the spec...
+                    self.month = int(dateish[2:4])
+                    self.day = int(dateish[4:6])
+                    self.year = int(dateish[6:10])
 
+                    # Nice idea from @rdhyee, we only need to compute the
+                    # 0-second for the day once per file.
+                    self.midnight_ts = datetime(self.year, self.month, self.day,
+                                                tzinfo=timezone('US/Eastern')
+                                               ).timestamp()
 
-                    if self.process_chunk:
+                    if self.do_process_chunk:
                         for chunk in self.chunks(self.numlines, infile):
                             yield self.process_chunk(chunk)
                     else:
-                        yield from self.chunks(self.numlines, infile)  # noqa
+                        yield from self.chunks(self.numlines, infile)
 
 
     def process_chunk(self, all_strings):
-        # This is unnecessary copying
-        easy_converted = all_strings.astype(easy_dtype)
+        '''Convert the structured ndarray `all_strings` to the target_dtype'''
+        # Note, this is slower than the code directly below
+        # records = recfunctions.append_fields(easy_converted, 'Time',
+        #                                      time64ish, usemask=False)
+        target_dtype = np.dtype(self.bytes_spec.target_dtype)
+        combined = np.empty(all_strings.shape, dtype=target_dtype)
+
+        # This should perform type coercion as well
+        for name in target_dtype.names:
+            if name == 'Time':
+                continue
+            combined[name] = all_strings[name]
 
         # These don't have the decimal point in the TAQ file
         for dollar_col in ['Bid_Price', 'Ask_Price']:
-            easy_converted[dollar_col] /= 10000
+            combined[dollar_col] /= 10000
 
-        # Currently, there doesn't seem to be any utility to converting to
-        # numpy.datetime64 PyTables wants float64's corresponding to the POSIX
-        # Standard (relative to 1970-01-01, UTC)
+        # Time is a bit of a PITA
 
-        # Old slow approach
-        # converted_time = [datetime(self.year, self.month, self.day,
-        #                            int(raw[:2]), int(raw[2:4]), int(raw[4:6]),
-        #                            # msec must be converted to  microsec
-        #                            int(raw[6:9]) * 1000,
-        #                            tzinfo=timezone('US/Eastern') ).timestamp()
-        #                   for raw in all_strings['Time'] ]
-
-        # Nice idea from @rdhyee
-        midnight = datetime(self.year, self.month, self.day,
-                            tzinfo=timezone('US/Eastern') ).timestamp()
+        # Currently, there doesn't seem to be any value in converting to
+        # numpy.datetime64, as PyTables wants float64's corresponding to the POSIX
+        # Standard (relative to 1970-01-01, UTC) that it then converts to a
+        # time64 struct on it's own
 
         # TODO This is the right math, but we still need to ensure we're
-        # coercing to sufficient data types. It's almost certainly inefficient,
-        # but it seems to work, though.
-        time64ish = (midnight + 
-                    all_strings['hour'] * 3600 + 
-                    all_strings['minute'] * 60 + 
-                    # I'm particularly amazed that this seems to work (in py3)
-                    all_strings['msec'] / 1000)
+        # coercing to sufficient data types (we need to make some tests!).
 
-        # More unnecessary copying
-        records = recfunctions.append_fields(easy_converted, 'Time',
-                                             time64ish, usemask=False)
+        # It's also probably a bit inefficient, but it seems to work, and based
+        # on Dav's testing, this is taking negligible time compared to the
+        # above conversions.
+        time64ish = (self.midnight_ts +
+                     combined['hour'] * 3600 +
+                     combined['minute'] * 60 +
+                     # I'm particularly amazed that this seems to work (in py3)
+                     combined['msec'] / 1000)
 
-        return records
+        combined['Time'] = time64ish
+
+        return combined
 
     def chunks(self, numlines, infile):
         '''Do the conversion of bytes to numpy "chunks"'''
