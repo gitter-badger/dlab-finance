@@ -98,8 +98,8 @@ class BytesSpec(object):
         easy_dtype = []
 
         for name, dtype in self.initial_dtype:
-            if name in convert_dict:
-                easy_dtype.append( (name, convert_dict[name]) )
+            if name in self.convert_dict:
+                easy_dtype.append( (name, self.convert_dict[name]) )
             elif name in self.passthrough_strings:
                 easy_dtype.append( (name, dtype) )
 
@@ -158,7 +158,7 @@ class BytesSpec(object):
             cum_len += field_len
             self.initial_dtype.append( (field_name, 'S{}'.format(field_len)) )
             if cum_len == target_len:
-                self.initial_dtype.append(('newline', 2))
+                self.initial_dtype.append(('newline', 'S2'))
                 return
 
         raise Error("Can't map fields onto bytes_per_line")
@@ -210,7 +210,7 @@ class TAQ2Chunks:
                     first = infile.readline()
                     bytes_per_line = len(first)
 
-                    bytes_spec = BytesSpec(bytes_per_line)
+                    self.bytes_spec = BytesSpec(bytes_per_line)
 
                     # You need to use bytes to split bytes
                     # some files (probably older files do not have a record count)
@@ -228,10 +228,10 @@ class TAQ2Chunks:
 
 
                     if self.process_chunk:
-                        for chunk in self.chunks(self.numlines, infile, self.chunksize):
+                        for chunk in self.chunks(self.numlines, infile):
                             yield self.process_chunk(chunk)
                     else:
-                        yield from self.chunks(self.numlines, infile, self.chunksize)  # noqa
+                        yield from self.chunks(self.numlines, infile)  # noqa
 
 
     def process_chunk(self, all_strings):
@@ -261,11 +261,11 @@ class TAQ2Chunks:
         # TODO This is the right math, but we still need to ensure we're
         # coercing to sufficient data types. It's almost certainly inefficient,
         # but it seems to work, though.
-        time64ish = midnight + \
-                    all_strings['hour'] * 3600 + \
-                    all_strings['minute'] * 60 + \
+        time64ish = (midnight + 
+                    all_strings['hour'] * 3600 + 
+                    all_strings['minute'] * 60 + 
                     # I'm particularly amazed that this seems to work (in py3)
-                    all_strings['msec'] / 1000
+                    all_strings['msec'] / 1000)
 
         # More unnecessary copying
         records = recfunctions.append_fields(easy_converted, 'Time',
@@ -273,20 +273,20 @@ class TAQ2Chunks:
 
         return records
 
-    def chunks(self, numlines, infile, chunksize=None):
+    def chunks(self, numlines, infile):
         '''Do the conversion of bytes to numpy "chunks"'''
         # TODO Should do check on numlines to make sure we get the right number
 
         while(True):
-            raw_bytes = infile.read(bytes_spec.bytes_per_line * chunksize)
+            raw_bytes = infile.read(self.bytes_spec.bytes_per_line * self.chunksize)
             if not raw_bytes:
                 break
 
             # This is a fix that @rdhyee made, but due to non-DRY appraoch, he
             # did not propagate his fix!
-            all_strings = np.ndarray(len(raw_bytes) // bytes_per_line,
+            all_strings = np.ndarray(len(raw_bytes) // self.bytes_spec.bytes_per_line,
                                         buffer=raw_bytes,
-                                        dtype=bytes_spec.initial_dtype)
+                                        dtype=self.bytes_spec.initial_dtype)
 
             yield all_strings
 
