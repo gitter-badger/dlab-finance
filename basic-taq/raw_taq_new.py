@@ -227,19 +227,10 @@ class TAQ2Chunks:
 
 
                     if self.process_chunk:
-                        yield from self.chunks(self.numlines, infile, self.chunksize)  # noqa
+                        for chunk in self.chunks(self.numlines, infile, self.chunksize):
+                            yield self.process_chunk(chunk)
                     else:
-                        more_bytes = True
-                        while (more_bytes):
-                            raw_bytes = infile.read(bytes_per_line * self.chunksize)
-                            all_strings = np.ndarray(len(raw_bytes) // bytes_per_line,
-                                                     buffer=raw_bytes,
-                                                     dtype=bytes_spec.initial_dtype)
-
-                            if raw_bytes:
-                                yield (all_strings)
-                            else:
-                                more_bytes = False
+                        yield from self.chunks(self.numlines, infile, self.chunksize)  # noqa
 
 
     def process_chunk(self, all_strings):
@@ -268,21 +259,23 @@ class TAQ2Chunks:
 
     def chunks(self, numlines, infile, chunksize=None):
         '''Do the conversion of bytes to numpy "chunks"'''
-        # Should do check on numlines to make sure we get the right number
+        # TODO Should do check on numlines to make sure we get the right number
 
         while(True):
             raw_bytes = infile.read(bytes_spec.bytes_per_line * chunksize)
             if not raw_bytes:
                 break
+
             # If we use asarray with this dtype, it crashes Python! (might not be true anymore)
             # ndarray gives 'S' arrays instead of chararrays (as recarray does)
-            all_strings = np.ndarray(chunksize, buffer=raw_bytes,
-                                     dtype=bytes_spec.initial_dtype)
 
-            # This approach doesn't work...
-            # out[chunk_start:chunk_stop, 1:] = all_strings[:,1:-1]
+            # This is a fix that @rdhyee made, but due to non-DRY appraoch, he
+            # did not propagate his fix!
+            all_strings = np.ndarray(len(raw_bytes) // bytes_per_line,
+                                        buffer=raw_bytes,
+                                        dtype=bytes_spec.initial_dtype)
 
-            yield self.process_chunk(all_strings)
+            yield all_strings
 
     # Everything from here down is HDF5 specific
     # def setup_hdf5(self, h5_fname_root, numlines):
