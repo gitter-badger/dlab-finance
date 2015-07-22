@@ -13,11 +13,11 @@ class BytesSpec(object):
     # List of (Name, # of bytes)
     # We will use this to contstuct "bytes" (which is what 'S' stands for - it
     # doesn't stand for "string")
-    initial_dtype_info = [# ('Time', 9),  # HHMMSSmmm, should be in Eastern Time (ET)
+    initial_dtype_info = [# Time is given in HHMMSSmmm, should be in Eastern Time (ET)
                           ('hour', 2),
                           ('minute', 2),
                           ('msec', 5), # This includes seconds - so up to
-                                            # 59,999 msecs
+                                       # 59,999 msecs
                           ('Exchange', 1),
                           # Wikipedia has a nice explanation of symbols here:
                           # https://en.wikipedia.org/wiki/Ticker_symbol
@@ -28,7 +28,8 @@ class BytesSpec(object):
                           ('Ask_Price', 11),  # 7.4
                           ('Ask_Size', 7),
                           ('Quote_Condition', 1),
-                          # Market_Maker ends up getting discarded, it should always be b'    '
+                          # Market_Maker ends up getting discarded
+                          # It should always be b'    '
                           ('Market_Maker', 4),
                           ('Bid_Exchange', 1),
                           ('Ask_Exchange', 1),
@@ -244,16 +245,31 @@ class TAQ2Chunks:
         # Currently, there doesn't seem to be any utility to converting to
         # numpy.datetime64 PyTables wants float64's corresponding to the POSIX
         # Standard (relative to 1970-01-01, UTC)
-        converted_time = [datetime(self.year, self.month, self.day,
-                                   int(raw[:2]), int(raw[2:4]), int(raw[4:6]),
-                                   # msec must be converted to  microsec
-                                   int(raw[6:9]) * 1000,
-                                   tzinfo=timezone('US/Eastern') ).timestamp()
-                          for raw in all_strings['Time'] ]
+
+        # Old slow approach
+        # converted_time = [datetime(self.year, self.month, self.day,
+        #                            int(raw[:2]), int(raw[2:4]), int(raw[4:6]),
+        #                            # msec must be converted to  microsec
+        #                            int(raw[6:9]) * 1000,
+        #                            tzinfo=timezone('US/Eastern') ).timestamp()
+        #                   for raw in all_strings['Time'] ]
+
+        # Nice idea from @rdhyee
+        midnight = datetime(self.year, self.month, self.day,
+                            tzinfo=timezone('US/Eastern') ).timestamp()
+
+        # TODO This is the right math, but we still need to ensure we're
+        # coercing to sufficient data types. It's almost certainly inefficient,
+        # but it seems to work, though.
+        time64ish = midnight + \
+                    all_strings['hour'] * 3600 + \
+                    all_strings['minute'] * 60 + \
+                    # I'm particularly amazed that this seems to work (in py3)
+                    all_strings['msec'] / 1000
 
         # More unnecessary copying
         records = recfunctions.append_fields(easy_converted, 'Time',
-                                             converted_time, usemask=False)
+                                             time64ish, usemask=False)
 
         return records
 
@@ -265,9 +281,6 @@ class TAQ2Chunks:
             raw_bytes = infile.read(bytes_spec.bytes_per_line * chunksize)
             if not raw_bytes:
                 break
-
-            # If we use asarray with this dtype, it crashes Python! (might not be true anymore)
-            # ndarray gives 'S' arrays instead of chararrays (as recarray does)
 
             # This is a fix that @rdhyee made, but due to non-DRY appraoch, he
             # did not propagate his fix!
