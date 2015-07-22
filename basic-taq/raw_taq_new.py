@@ -16,7 +16,7 @@ class BytesSpec(object):
     initial_dtype_info = [# ('Time', 9),  # HHMMSSmmm, should be in Eastern Time (ET)
                           ('hour', 2),
                           ('minute', 2),
-                          ('msecs', 5), # This includes seconds - so up to
+                          ('msec', 5), # This includes seconds - so up to
                                             # 59,999 msecs
                           ('Exchange', 1),
                           # Wikipedia has a nice explanation of symbols here:
@@ -47,11 +47,15 @@ class BytesSpec(object):
                          ]
 
     # Justin and Pandas (I think) use time64, as does PyTables.
-    # We could use msec from beginning of day for now in an int16
-    # (maybe compare performance to datetime64? But dates should compress very well...)
-    time_col = 'Time'
+    # We could use msec from beginning of day for now in an uint16
+    # (maybe compare performance to datetime64? Dates should compress very well...)
 
-    convert_dtype = [('Bid_Price', np.float64),
+    convert_dtype = [('hour', np.int8),
+                     ('minute', np.int8),
+                     # This works well for now, but pytables wants:
+                     # <seconds-from-epoch>.<fractional-seconds> as a float64
+                     ('msec', np.uint16),
+                     ('Bid_Price', np.float64),
                      ('Bid_Size', np.int32),
                      ('Ask_Price', np.float64),
                      ('Ask_Size', np.int32),
@@ -62,6 +66,8 @@ class BytesSpec(object):
                      # ('National_BBO_Ind', np.int8),
                      # ('NASDAQ_BBO_Ind', np.int8),
                     ]
+
+    convert_dict = dict(convert_dtype)
 
     passthrough_strings = ['Exchange',
                            'Symbol_root',
@@ -85,29 +91,23 @@ class BytesSpec(object):
 
     def __init__(self, bytes_per_line):
         self.bytes_per_line = bytes_per_line
+        self.check_present_fields()
 
         # The "easy" dtypes are the "not datetime" dtypes
         easy_dtype = []
-        convert_dict = dict(self.convert_dtype)
 
-        for name, num_bytes in self.initial_dtype_info:
+        for name, dtype in self.initial_dtype:
             if name in convert_dict:
                 easy_dtype.append( (name, convert_dict[name]) )
             elif name in self.passthrough_strings:
-                easy_dtype.append( (name, 'S{}'.format(num_bytes)) )
+                easy_dtype.append( (name, dtype) )
 
         # PyTables will not accept np.datetime64, we hack below, but we use it to work
         # with the blaze function above.
         # We also shift Time to the end (while I'd rather maintain order), as it's more
         # efficient for Dav given the technical debt he's already built up.
-        pytables_dtype = easy_dtype + [('Time', 'datetime64[ms]')]
+        pytables_dtype = easy_dtype # + [('Time', 'datetime64[ms]')]
         self.pytables_desc = self.dtype_to_pytables( np.dtype(pytables_dtype) )
-        self.present_fields()
-
-        # present_fields = self.initial_dtype_info[:(len_map[self.bytes_per_line]+1)] + \
-        #               [self.initial_dtype[-1]]
-
-        self.initial_dtype = []
 
     # Lifted from blaze.pytables
     def dtype_to_pytables(self, dtype):
@@ -134,7 +134,7 @@ class BytesSpec(object):
             d.update(el._v_colobjects)
         return d
 
-    def present_fields(self):
+    def check_present_fields(self):
         """
         self.initial_dtype_info should be of form, we encode newline info here!
 
@@ -147,18 +147,20 @@ class BytesSpec(object):
         all versions of BBO
         """
         cum_len = 0
+        self.initial_dtype = []
 
         # Newlines consume 2 bytes
         target_len = self.bytes_per_line - 2
 
-        for i, info in enumerate(self.initial_dtype_info[:-1], 1):
+        for field_name, field_len in self.initial_dtype_info:
             # Better to do nested unpacking within the function
-            _, flen = info
-            cum_len += flen
+            cum_len += field_len
+            self.initial_dtype.append( (field_name, 'S{}'.format(field_len)) )
             if cum_len == target_len:
-                return self.initial_dtype_info[:i] + [('newline', 2)]
+                self.initial_dtype.append(('newline', 2))
+                return
 
-        raise Error("Can't map fields onto bytes_per-line")
+        raise Error("Can't map fields onto bytes_per_line")
 
 
 # TODO HDF5 will be broken for now
@@ -232,7 +234,7 @@ class TAQ2Chunks:
                             raw_bytes = infile.read(bytes_per_line * self.chunksize)
                             all_strings = np.ndarray(len(raw_bytes) // bytes_per_line,
                                                      buffer=raw_bytes,
-                                                     dtype=bytes_spec.dtype)
+                                                     dtype=bytes_spec.initial_dtype)
 
                             if raw_bytes:
                                 yield (all_strings)
@@ -274,7 +276,8 @@ class TAQ2Chunks:
                 break
             # If we use asarray with this dtype, it crashes Python! (might not be true anymore)
             # ndarray gives 'S' arrays instead of chararrays (as recarray does)
-            all_strings = np.ndarray(chunksize, buffer=raw_bytes, dtype=bytes_spec.dtype)
+            all_strings = np.ndarray(chunksize, buffer=raw_bytes,
+                                     dtype=bytes_spec.initial_dtype)
 
             # This approach doesn't work...
             # out[chunk_start:chunk_stop, 1:] = all_strings[:,1:-1]
