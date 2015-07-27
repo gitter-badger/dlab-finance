@@ -181,20 +181,27 @@ class BytesSpec(object):
 # TODO HDF5 will be broken for now
 class TAQ2Chunks:
     '''Read in raw TAQ BBO file, and return numpy chunks (cf. odo)'''
-
-    # bytes = initialbytes()
+    numlines = None
+    year = None
+    month = None
+    day = None
 
     def __init__(self, taq_fname, chunksize = 1000000, do_process_chunk = False):
+        '''Configure conversion process and (for now) set up the iterator
+        taq_fname : str
+            Name of input file
+        chunksize : int
+            Number of rows in each chunk
+        do_process_chunk : bool
+            Do type conversions?
+        '''
         self.taq_fname = taq_fname
         self.chunksize = chunksize
         self.do_process_chunk = do_process_chunk
 
-        self.numlines = None
-        self.year = None
-        self.month = None
-        self.day = None
-
         self.iter_ = self.convert_taq()
+        # Get first line read / set up remaining attributes
+        next(self.iter_)
 
     def __len__(self):
         return self.numlines
@@ -206,10 +213,7 @@ class TAQ2Chunks:
         return next(self.iter_)
 
     def convert_taq(self):
-        '''Return a generator that yields chunks
-        chunksize : int
-            Number of rows in each chunk
-        '''
+        '''Return a generator that yields chunks, based on config in object '''
         # The below doesn't work for pandas (and neither does `unzip` from the
         # command line). Probably want to use something like `7z x -so
         # my_file.zip 2> /dev/null` if we use pandas.
@@ -239,7 +243,6 @@ class TAQ2Chunks:
                         dateish, numlines = first.split(b":")
                         self.numlines = int(numlines)
                     except ValueError:
-                        self.numlines = None
                         dateish = first
 
                     # Get dates to combine with times later
@@ -254,14 +257,15 @@ class TAQ2Chunks:
                                                 tzinfo=timezone('US/Eastern')
                                                ).timestamp()
 
+                    # This lets us run the first line to initialize our various
+                    # attributes
+                    yield
+
                     if self.do_process_chunk:
                         for chunk in self.chunks(self.numlines, infile):
                             yield self.process_chunk(chunk)
                     else:
                         yield from self.chunks(self.numlines, infile)
-
-                    h5 = self.to_hdf5(infile, self.numlines, chunksize=10)                  
-
 
     def process_chunk(self, all_strings):
         '''Convert the structured ndarray `all_strings` to the target_dtype'''
@@ -341,7 +345,7 @@ class TAQ2Chunks:
         h5_table = self.setup_hdf5(self.taq_fname, self.numlines)
         try:
             for i in self.iter_:
-                h5_table.table.append(i)
+                h5_table.append(i)
         finally:
             self.finalize_hdf5()
 
