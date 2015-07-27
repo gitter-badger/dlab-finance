@@ -260,6 +260,8 @@ class TAQ2Chunks:
                     else:
                         yield from self.chunks(self.numlines, infile)
 
+                    h5 = self.to_hdf5(infile, self.numlines, chunksize=10)                  
+
 
     def process_chunk(self, all_strings):
         '''Convert the structured ndarray `all_strings` to the target_dtype'''
@@ -320,40 +322,35 @@ class TAQ2Chunks:
             yield all_strings
 
     # Everything from here down is HDF5 specific
-    # def setup_hdf5(self, h5_fname_root, numlines):
-    #     # We're using aggressive compression and checksums, since this will
-    #     # likely stick around Stopping one level short of max compression -
-    #     # don't be greedy.
-    #     self.h5 = tb.open_file(h5_fname_root + '.h5', title=h5_fname_root,
-    #                            mode='w', filters=tb.Filters(complevel=8,
-    #                                                         complib='blosc:lz4hc',
-    #                                                         fletcher32=True) )
+    def setup_hdf5(self, h5_fname_root, numlines):
+        # We're using aggressive compression and checksums, since this will
+        # likely stick around Stopping one level short of max compression -
+        # don't be greedy.
+        self.h5 = tb.open_file(h5_fname_root + '.h5', title=h5_fname_root,
+                               mode='w', filters=tb.Filters(complevel=8, complib='blosc:lz4hc', fletcher32=True) )
 
-    #     return self.h5.create_table('/', 'daily_quotes',
-    #                                 description=bytes_spec.pytables_desc,
-    #                                 expectedrows=numlines)
+        return self.h5.create_table('/', 'daily_quotes', description=self.bytes_spec.pytables_desc, expectedrows=self.numlines)
 
+    def finalize_hdf5(self):
+        self.h5.close()
 
-    # def finalize_hdf5(self):
-    #     self.h5.close()
+    def to_hdf5(self):
+        '''Read raw bytes from TAQ, write to HDF5'''
 
+        # Should I use a context manager here?
+        h5_table = self.setup_hdf5(self.taq_fname, self.numlines)
+        try:
+            for i in self.iter_:
+                h5_table.table.append(i)
+        finally:
+            self.finalize_hdf5()
 
-    # def to_hdf5(self, numlines, infile, out, chunksize=None):
-    #     '''Read raw bytes from TAQ, write to HDF5'''
+        # at some point, we might optimize chunksize. For now, assume PyTables is smart
+        #if chunksize is None:
+        #    chunksize = out.chunkshape[0]
 
-    #     # Should I use a context manager here?
-    #     h5_table = self.setup_hdf5(inside_f.filename, numlines)
-    #     try:
-    #         self.to_hdf5(numlines, infile, h5_table)
-    #     finally:
-    #         self.finalize_hdf5()
-
-    #     # at some point, we might optimize chunksize. For now, assume PyTables is smart
-    #     if chunksize is None:
-    #         chunksize = out.chunkshape[0]
-
-    #     for chunk in self.to_chunks(numlines, infile, chunksize):
-    #         out.append(chunk)
+        #for chunk in self.to_chunks(self.numlines, infile, chunksize):
+        #    out.append(chunk)
 
 if __name__ == '__main__':
     from sys import argv
