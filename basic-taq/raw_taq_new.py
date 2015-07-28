@@ -255,10 +255,15 @@ class TAQ2Chunks:
                     self.year = int(dateish[6:10])
 
                     # Nice idea from @rdhyee, we only need to compute the
-                    # 0-second for the day once per file.
-                    self.midnight_ts = datetime(self.year, self.month, self.day,
-                                                tzinfo=timezone('US/Eastern')
-                                               ).timestamp()
+                    # 0-second for the day once per file.self
+                    naive_dt = datetime(self.year, self.month, self.day)
+
+                    # It turns out you can't pass tzinfo directly, See
+                    # http://pythonhosted.org/pytz/
+                    # This lets us compute a UTC timestamp
+                    self.midnight_ts = timezone('US/Eastern').\
+                                        localize(naive_dt).\
+                                         timestamp()
 
                     # This lets us run the first line to initialize our various
                     # attributes
@@ -291,8 +296,6 @@ class TAQ2Chunks:
         for dollar_col in ['Bid_Price', 'Ask_Price']:
             combined[dollar_col] /= 10000
 
-        # Time is a bit of a PITA
-
         # Currently, there doesn't seem to be any value in converting to
         # numpy.datetime64, as PyTables wants float64's corresponding to the POSIX
         # Standard (relative to 1970-01-01, UTC) that it then converts to a
@@ -301,9 +304,9 @@ class TAQ2Chunks:
         # TODO This is the right math, but we still need to ensure we're
         # coercing to sufficient data types (we need to make some tests!).
 
-        # It's also probably a bit inefficient, but it seems to work, and based
-        # on Dav's testing, this is taking negligible time compared to the
-        # above conversions.
+        # The math is also probably a bit inefficient, but it seems to work,
+        # and based on Dav's testing, this is taking negligible time compared
+        # to the above conversions.
         time64ish = (self.midnight_ts +
                      combined['hour'] * 3600 +
                      combined['minute'] * 60 +
@@ -378,8 +381,6 @@ class TAQ2Chunks:
         #if chunksize is None:
         #    chunksize = out.chunkshape[0]
 
-        #for chunk in self.to_chunks(self.numlines, infile, chunksize):
-        #    out.append(chunk)
 
 if __name__ == '__main__':
     from sys import argv
