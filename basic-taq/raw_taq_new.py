@@ -19,8 +19,6 @@ class BytesSpec(object):
                           ('msec', 5), # This includes seconds - so up to
                                        # 59,999 msecs
                           ('Exchange', 1),
-                          # Wikipedia has a nice explanation of symbols here:
-                          # https://en.wikipedia.org/wiki/Ticker_symbol
                           ('Symbol_root', 6),
                           ('Symbol_suffix', 10),
                           ('Bid_Price', 11),  # 7.4 (fixed point)
@@ -75,9 +73,9 @@ class BytesSpec(object):
                            'Symbol_root',
                            'Symbol_suffix',
                            'Quote_Condition',
+                           'Market_Maker',
                            'Bid_Exchange',
                            'Ask_Exchange',
-                           # The _Ind fields are actually categorical - leaving as strings
                            'National_BBO_Ind',
                            'NASDAQ_BBO_Ind',
                            'Quote_Cancel_Correction',
@@ -140,7 +138,7 @@ class BytesSpec(object):
         for pos, name in enumerate(dtype.names):
             dt, _ = dtype.fields[name]
             if issubclass(dt.type, np.datetime64):
-                tdtype = tb.Description({name: tb.Time64Col(pos = pos)}),
+                tdtype = tb.defscription({name: tb.Time64Col(pos = pos)}),
             else:
                 tdtype = tb.descr_from_dtype(np.dtype([(name, dt)]))
             el = tdtype[0]  # removed dependency on toolz -DJC
@@ -344,8 +342,10 @@ class TAQ2Chunks:
         # Should I use a context manager here?
         h5_table = self.setup_hdf5(self.taq_fname, self.numlines)
         try:
-            for i in self.iter_:
-                h5_table.append(i)
+            print(next(self.iter_))
+            h5_table.append(next(self.iter_))
+            #for i in self.iter_:
+            #    h5_table.append(i)
         finally:
             self.finalize_hdf5()
 
@@ -362,5 +362,6 @@ if __name__ == '__main__':
 
     # Grab the first BBO file we can find
     fname = glob('../local_data/EQY_US_ALL_BBO_20140206.zip')
-    chunks = TAQ2Chunks(fname,chunksize=1000, process_chunk=False)
+    chunks = TAQ2Chunks(fname,chunksize=1000, do_process_chunk=False)
+    chunks.to_hdf5()
 
