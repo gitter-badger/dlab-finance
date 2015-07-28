@@ -1,4 +1,4 @@
-# This file currently depends on python 3.3+
+#!/usr/bin/env python3
 
 from os import path
 from datetime import datetime
@@ -9,7 +9,9 @@ import numpy as np
 from numpy.lib import recfunctions
 import tables as tb
 
+
 class BytesSpec(object):
+    '''A description of the records in raw TAQ files'''
 
     # List of (Name, # of bytes)
     # We will use this to contstuct "bytes" (which is what 'S' stands for - it
@@ -177,20 +179,26 @@ class BytesSpec(object):
         raise Error("Can't map fields onto bytes_per_line")
 
 
-# TODO HDF5 will be broken for now
 class TAQ2Chunks:
     '''Read in raw TAQ BBO file, and return numpy chunks (cf. odo)'''
+
+    # These are the data available in the header of the file
     numlines = None
     year = None
     month = None
     day = None
 
-    def __init__(self, taq_fname, chunksize = 1000000, do_process_chunk = False):
+    # This is a totally random guess. It should probably be tuned if we care...
+    DEFAULT_CHUNKSIZE = 1000000
+
+    def __init__(self, taq_fname, chunksize=None, do_process_chunk=True):
         '''Configure conversion process and (for now) set up the iterator
         taq_fname : str
             Name of input file
         chunksize : int
-            Number of rows in each chunk
+            Number of rows in each chunk. If None, the HDF5 logic will set it
+            based on the chunkshape determined by pytables. Otherwise,
+            `chunks()` will set this to DEFAULT_CHUNKSIZE.
         do_process_chunk : bool
             Do type conversions?
         '''
@@ -206,7 +214,9 @@ class TAQ2Chunks:
         return self.numlines
 
     def __iter__(self):
-         return self
+        # Returning the internal iterator avoids a function call, not a big
+        # deal, but may as well avoid extra computation
+        return self.iter_
 
     def __next__(self):
         return next(self.iter_)
@@ -265,8 +275,8 @@ class TAQ2Chunks:
                                         localize(naive_dt).\
                                          timestamp()
 
-                    # This lets us run the first line to initialize our various
-                    # attributes
+                    # This lets us parse the first line to initialize our
+                    # various attributes
                     yield
 
                     if self.do_process_chunk:
@@ -275,8 +285,8 @@ class TAQ2Chunks:
                     else:
                         yield from self.chunks(self.numlines, infile)
 
-    def process_chunk(self, all_strings):
-        '''Convert the structured ndarray `all_strings` to the target_dtype
+    def process_chunk(self, all_bytes):
+        '''Convert the structured ndarray `all_bytes` to the target_dtype
 
         If you did not specify do_process_chunk, you might run this yourself on
         chunks that you get from iteration.'''
@@ -284,13 +294,13 @@ class TAQ2Chunks:
         # records = recfunctions.append_fields(easy_converted, 'Time',
         #                                      time64ish, usemask=False)
         target_dtype = np.dtype(self.bytes_spec.target_dtype)
-        combined = np.empty(all_strings.shape, dtype=target_dtype)
+        combined = np.empty(all_bytes.shape, dtype=target_dtype)
 
         # This should perform type coercion as well
         for name in target_dtype.names:
             if name == 'Time':
                 continue
-            combined[name] = all_strings[name]
+            combined[name] = all_bytes[name]
 
         # These don't have the decimal point in the TAQ file
         for dollar_col in ['Bid_Price', 'Ask_Price']:
@@ -321,6 +331,9 @@ class TAQ2Chunks:
         '''Do the conversion of bytes to numpy "chunks"'''
         # TODO Should do check on numlines to make sure we get the right number
 
+        if self.chunksize is None:
+            self.chunksize = self.DEFAULT_CHUNKSIZE
+
         while(True):
             raw_bytes = infile.read(self.bytes_spec.bytes_per_line * self.chunksize)
             if not raw_bytes:
@@ -328,11 +341,11 @@ class TAQ2Chunks:
 
             # This is a fix that @rdhyee made, but due to non-DRY appraoch, he
             # did not propagate his fix!
-            all_strings = np.ndarray(len(raw_bytes) // self.bytes_spec.bytes_per_line,
+            all_bytes = np.ndarray(len(raw_bytes) // self.bytes_spec.bytes_per_line,
                                         buffer=raw_bytes,
                                         dtype=self.bytes_spec.initial_dtype)
 
-            yield all_strings
+            yield all_bytes
 
     # Everything from here down is HDF5 specific
     def setup_hdf5(self, h5_fname_root=None):
@@ -349,8 +362,8 @@ class TAQ2Chunks:
             h5_fname_root, _ = path.splitext(self.taq_fname)
 
         # We're using aggressive compression and checksums, since this will
-        # likely stick around Stopping one level short of max compression -
-        # don't be greedy :P
+        # likely stick around, I'm stopping one level short of max compression.
+        # Don't be greedy :P
         self.h5 = tb.open_file(h5_fname_root + '.h5', title=h5_fname_root,
                                mode='w',
                                filters=tb.Filters(complevel=8,
@@ -369,25 +382,31 @@ class TAQ2Chunks:
 
         # Should I use a context manager here?
         h5_table = self.setup_hdf5()
+
+        # At some point, we might optimize chunksize. If we create our hdf5
+        # file with PyTables before setting chunksize, we currently assume
+        # PyTables is smart.
+        if self.chunksize is None:
+            self.chunksize = out.chunkshape[0]
+
         try:
-            print(next(self.iter_))
-            h5_table.append(next(self.iter_))
-            #for i in self.iter_:
-            #    h5_table.append(i)
+            for chunk in self.iter_:
+                # print(chunk)
+                h5_table.append(chunk)
+                # XXX for testing, we are only converting one chunk
+                break
         finally:
             self.finalize_hdf5()
-
-        # at some point, we might optimize chunksize. For now, assume PyTables is smart
-        #if chunksize is None:
-        #    chunksize = out.chunkshape[0]
 
 
 if __name__ == '__main__':
     from sys import argv
-    from glob import glob
 
-    # Grab the first BBO file we can find
-    fname = glob('../local_data/EQY_US_ALL_BBO_20140206.zip')
-    chunks = TAQ2Chunks(fname,chunksize=1000, do_process_chunk=False)
+    try:
+        fname = argv[1]
+    except IndexError:
+        # Grab our agreed-upon "standard" BBO file
+        fname = '../local_data/EQY_US_ALL_BBO_20150102.zip'
+
+    chunks = TAQ2Chunks(fname)
     chunks.to_hdf5()
-
