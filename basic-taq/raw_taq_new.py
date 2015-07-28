@@ -1,7 +1,8 @@
 # This file currently depends on python 3.3+
 
-from zipfile import ZipFile
+from os import path
 from datetime import datetime
+from zipfile import ZipFile
 
 from pytz import timezone
 import numpy as np
@@ -197,7 +198,7 @@ class TAQ2Chunks:
         self.chunksize = chunksize
         self.do_process_chunk = do_process_chunk
 
-        self.iter_ = self.convert_taq()
+        self.iter_ = self._convert_taq()
         # Get first line read / set up remaining attributes
         next(self.iter_)
 
@@ -210,8 +211,12 @@ class TAQ2Chunks:
     def __next__(self):
         return next(self.iter_)
 
-    def convert_taq(self):
-        '''Return a generator that yields chunks, based on config in object '''
+    def _convert_taq(self):
+        '''Return a generator that yields chunks, based on config in object
+
+        This is meant to be called from within `__init__()`, and stored in
+        `self.iter_`
+        '''
         # The below doesn't work for pandas (and neither does `unzip` from the
         # command line). Probably want to use something like `7z x -so
         # my_file.zip 2> /dev/null` if we use pandas.
@@ -266,7 +271,10 @@ class TAQ2Chunks:
                         yield from self.chunks(self.numlines, infile)
 
     def process_chunk(self, all_strings):
-        '''Convert the structured ndarray `all_strings` to the target_dtype'''
+        '''Convert the structured ndarray `all_strings` to the target_dtype
+
+        If you did not specify do_process_chunk, you might run this yourself on
+        chunks that you get from iteration.'''
         # Note, this is slower than the code directly below
         # records = recfunctions.append_fields(easy_converted, 'Time',
         #                                      time64ish, usemask=False)
@@ -324,14 +332,31 @@ class TAQ2Chunks:
             yield all_strings
 
     # Everything from here down is HDF5 specific
-    def setup_hdf5(self, h5_fname_root, numlines):
+    def setup_hdf5(self, h5_fname_root=None):
+        '''Open an HDF5 file with pytables and return a reference to a table
+
+        The table will be constructed based on self.bytes_spec.pytables_desc.
+
+        h5_fname_root : str
+            Used as `title` of HDF5 file, and '.h5' is appended to make the
+            filename. If unspecified, this is derived from self.taq_fname by
+            dorpping off the final extension.
+        '''
+        if h5_fname_root is None:
+            h5_fname_root, _ = path.splitext(self.taq_fname)
+
         # We're using aggressive compression and checksums, since this will
         # likely stick around Stopping one level short of max compression -
-        # don't be greedy.
+        # don't be greedy :P
         self.h5 = tb.open_file(h5_fname_root + '.h5', title=h5_fname_root,
-                               mode='w', filters=tb.Filters(complevel=8, complib='blosc:lz4hc', fletcher32=True) )
+                               mode='w',
+                               filters=tb.Filters(complevel=8,
+                                                  complib='blosc:lz4hc',
+                                                  fletcher32=True) )
 
-        return self.h5.create_table('/', 'daily_quotes', description=self.bytes_spec.pytables_desc, expectedrows=self.numlines)
+        return self.h5.create_table('/', 'daily_quotes',
+                                    description=self.bytes_spec.pytables_desc,
+                                    expectedrows=self.numlines)
 
     def finalize_hdf5(self):
         self.h5.close()
@@ -340,7 +365,7 @@ class TAQ2Chunks:
         '''Read raw bytes from TAQ, write to HDF5'''
 
         # Should I use a context manager here?
-        h5_table = self.setup_hdf5(self.taq_fname, self.numlines)
+        h5_table = self.setup_hdf5()
         try:
             print(next(self.iter_))
             h5_table.append(next(self.iter_))
