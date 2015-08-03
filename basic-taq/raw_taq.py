@@ -405,8 +405,12 @@ if __name__ == '__main__':
     except IndexError:
         # Grab our agreed-upon "standard" BBO file
         #fname = '../local_data/EQY_US_ALL_BBO_20150102.zip'
-        #fname = '../local_data/EQY_US_ALL_BBO_20140206.zip'
-        fname = glob('../local_data/EQY_US_ALL_BBO_201501*.zip')
-        for i in fname:
-            test = TAQ2Chunks(i, do_process_chunk=True)
-            test.to_hdf5()
+        fname = '../local_data/EQY_US_ALL_BBO_20140206.zip'
+
+    test = TAQ2Chunks(fname, do_process_chunk=Flase)
+    test.to_hdf5()
+    #     fname = glob('../local_data/EQY_US_ALL_BBO_201501*.zip')
+    
+    # for i in fname:
+    #     test = TAQ2Chunks(i, do_process_chunk=True)
+    #     test.to_hdf5()
