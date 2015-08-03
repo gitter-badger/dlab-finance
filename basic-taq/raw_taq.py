@@ -347,7 +347,7 @@ class TAQ2Chunks:
 
             yield all_bytes
 
-    # Everything from here down is HDF5 specific
+    #Everything from here down is HDF5 specific
     def setup_hdf5(self, h5_fname_root=None):
         '''Open an HDF5 file with pytables and return a reference to a table
 
@@ -386,12 +386,10 @@ class TAQ2Chunks:
         # At some point, we might optimize chunksize. If we create our hdf5
         # file with PyTables before setting chunksize, we currently assume
         # PyTables is smart.
-        if self.chunksize is None:
-            self.chunksize = out.chunkshape[0]
-
+        #if self.chunksize is None:
+        #    self.chunksize = out.chunkshape[0]
         try:
             for chunk in self.iter_:
-                # print(chunk)
                 h5_table.append(chunk)
                 # XXX for testing, we are only converting one chunk
                 break
@@ -406,7 +404,9 @@ if __name__ == '__main__':
         fname = argv[1]
     except IndexError:
         # Grab our agreed-upon "standard" BBO file
-        fname = '../local_data/EQY_US_ALL_BBO_20150102.zip'
-
-    chunks = TAQ2Chunks(fname)
-    chunks.to_hdf5()
+        #fname = '../local_data/EQY_US_ALL_BBO_20150102.zip'
+        #fname = '../local_data/EQY_US_ALL_BBO_20140206.zip'
+        fname = glob('../local_data/EQY_US_ALL_BBO_201501*.zip')
+        for i in fname:
+            test = TAQ2Chunks(i, do_process_chunk=True)
+            test.to_hdf5()

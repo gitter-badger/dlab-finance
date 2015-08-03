@@ -2,29 +2,26 @@ from glob import glob
 from itertools import (islice, zip_longest)
 from collections import Counter
 import numpy as np
-from collections import Counter
-from itertools import islice
-import raw
+from sys import argv
 
-def count_chunk_elements(fname, chunksize = 1000000, max_chunk = None, process_chunk = False):
+import raw_taq
+
+def count_chunk_elements(fname, chunksize = 1000000, max_chunk = None, process_chunk = True):
 
     symbol_roots = Counter()
 
-    for (i,chunk) in enumerate(islice(raw_taq_new.TAQ2Chunks(fname, chunksize=chunksize, process_chunk=process_chunk), max_chunk)):
+    for (i,chunk) in enumerate(islice(raw_taq.TAQ2Chunks(fname, chunksize=chunksize, do_process_chunk=process_chunk), max_chunk)):
 
         counts = np.unique(chunk[:]['Symbol_root'], return_counts=True)
         symbol_roots.update(dict(zip_longest(counts[0], counts[1])))
 
-        print("\r {0}".format(i),end="")
+        #print("\r {0}".format(i),end="")
 
     return symbol_roots
 
 if __name__ == '__main__':
-    from sys import argv
     fname = '../local_data/EQY_US_ALL_BBO_20150102.zip'
-    
-    chunks = raw_taq_new.TAQ2Chunks(fname,chunksize=argv[1], process_chunk=False)
-    c = count_chunk_elements(fname, max_chunk=None)
-    for (i,(k,v)) in enumerate(islice(c.most_common(),50)):
-    	print ("\t".join([str(i), k.decode('utf-8').strip(), str(v)]))
 
+    c = count_chunk_elements(fname, chunksize = int(argv[1]), max_chunk=None, process_chunk = False)
+    for (i,(k,v)) in enumerate(islice(c.most_common(),100)):
+        print ("\t".join([str(i), k.decode('utf-8').strip(), str(v)]))
