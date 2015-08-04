@@ -360,12 +360,12 @@ class TAQ2Chunks:
         '''
         if h5_fname_root is None:
             h5_fname_root, _ = path.splitext(self.taq_fname)
-            h5_fname_root = path.basename(h5_fname_root)
 
         # We're using aggressive compression and checksums, since this will
         # likely stick around, I'm stopping one level short of max compression.
         # Don't be greedy :P
-        self.h5 = tb.open_file(h5_fname_root + '.h5', title=h5_fname_root,
+        self.h5 = tb.open_file(h5_fname_root + '.h5',
+                               title=path.basename(h5_fname_root),
                                mode='w',
                                filters=tb.Filters(complevel=8,
                                                   complib='blosc:lz4hc',
