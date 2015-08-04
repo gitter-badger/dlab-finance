@@ -360,6 +360,7 @@ class TAQ2Chunks:
         '''
         if h5_fname_root is None:
             h5_fname_root, _ = path.splitext(self.taq_fname)
+            h5_fname_root = path.basename(h5_fname_root)
 
         # We're using aggressive compression and checksums, since this will
         # likely stick around, I'm stopping one level short of max compression.
@@ -386,8 +387,9 @@ class TAQ2Chunks:
         # At some point, we might optimize chunksize. If we create our hdf5
         # file with PyTables before setting chunksize, we currently assume
         # PyTables is smart.
-        #if self.chunksize is None:
-        #    self.chunksize = out.chunkshape[0]
+        if self.chunksize is None:
+            self.chunksize = h5_table.chunkshape[0]
+
         try:
             for chunk in self.iter_:
                 h5_table.append(chunk)
@@ -410,7 +412,7 @@ if __name__ == '__main__':
     test = TAQ2Chunks(fname, do_process_chunk=Flase)
     test.to_hdf5()
     #     fname = glob('../local_data/EQY_US_ALL_BBO_201501*.zip')
-    
+
     # for i in fname:
     #     test = TAQ2Chunks(i, do_process_chunk=True)
     #     test.to_hdf5()
