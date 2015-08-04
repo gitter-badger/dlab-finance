@@ -402,7 +402,7 @@ class TAQ2Chunks:
 if __name__ == '__main__':
     from sys import argv
 
-    fnames = argv[1:]
+    fnames = argv[1:]   #./raw_taq.py ../local_data/EQY_US_ALL_BBO_201501*.zip
     if not fnames:
         # Grab our agreed-upon "standard" BBO file
         fnames = ['../local_data/EQY_US_ALL_BBO_20150102.zip']
