@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 
 from os import path
-from datetime import datetime
 from zipfile import ZipFile
 
 from pytz import timezone
 import numpy as np
 from numpy.lib import recfunctions
 import tables as tb
+import time, datetime
 
 
 class BytesSpec(object):
     '''A description of the records in raw TAQ files'''
 
-    # List of (Name, # of bytes)
+    # List of (Name, # of bytes_spectes)
     # We will use this to contstuct "bytes" (which is what 'S' stands for - it
     # doesn't stand for "string")
     initial_dtype_info = [# Time is given in HHMMSSmmm, should be in Eastern Time (ET)
@@ -266,7 +266,7 @@ class TAQ2Chunks:
 
                     # Nice idea from @rdhyee, we only need to compute the
                     # 0-second for the day once per file.self
-                    naive_dt = datetime(self.year, self.month, self.day)
+                    naive_dt = datetime.datetime(self.year, self.month, self.day)
 
                     # It turns out you can't pass tzinfo directly, See
                     # http://pythonhosted.org/pytz/
@@ -380,7 +380,6 @@ class TAQ2Chunks:
 
     def to_hdf5(self):
         '''Read raw bytes from TAQ, write to HDF5'''
-
         # Should I use a context manager here?
         h5_table = self.setup_hdf5()
 
@@ -394,21 +393,54 @@ class TAQ2Chunks:
             for chunk in self.iter_:
                 h5_table.append(chunk)
                 # XXX for testing, we are only converting one chunk
-                break
+                #break
         finally:
             self.finalize_hdf5()
 
-
 if __name__ == '__main__':
     from sys import argv
+    import os
+    from tables import *
 
-    fnames = argv[1:]   #./raw_taq.py ../local_data/EQY_US_ALL_BBO_201501*.zip
+    class Particle(IsDescription):
+        name = StringCol(30)   # 16-character String
+        time = StringCol(8)
+
+    fnames = argv[1:]   #./raw_taq.py ../../local_data/EQY_US_ALL_BBO_201502*.zip
     if not fnames:
         # Grab our agreed-upon "standard" BBO file
-        fnames = ['../local_data/EQY_US_ALL_BBO_20150102.zip']
+        fnames = ['../../local_data/EQY_US_ALL_BBO_20150202.zip']
         # fname = '../local_data/EQY_US_ALL_BBO_20140206.zip'
+
+
+    def timing(t0, t1):
+        #convert the time note to string with regular formate
+        a = datetime.datetime.fromtimestamp(t0).strftime('%Y-%m-%d %H:%M:%S')
+        b = datetime.datetime.fromtimestamp(t1).strftime('%Y-%m-%d %H:%M:%S')
+
+        #time string calucation
+        start = datetime.datetime.strptime(a, '%Y-%m-%d %H:%M:%S')
+        end = datetime.datetime.strptime(b, '%Y-%m-%d %H:%M:%S')
+        diff = str(end - start)
+
+        return diff
+
+    log = open_file("log_201503.h5", mode = "w")
+    table = log.create_table('/', 'files', Particle)        
+    row = table.row
 
     for name in fnames:
         print('processing', name)
-        test = TAQ2Chunks(name, do_process_chunk=True)
-        test.to_hdf5()
+        h5_path = "../../local_data/%s.h5" %(name[17:40])
+        
+        if not os.path.exists(h5_path):
+            t0 = time.time()
+            test = TAQ2Chunks(name, do_process_chunk=True)
+            test.to_hdf5()
+            t1 = time.time()
+
+            row['name'] = name[32:40]
+            row['time'] = timing(t0, t1)
+            row.append()
+
+            
